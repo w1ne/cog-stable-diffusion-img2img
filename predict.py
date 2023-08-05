@@ -5,6 +5,7 @@ import torch
 from diffusers import (
     StableDiffusionPipeline,
     StableDiffusionImg2ImgPipeline,
+    StableDiffusionInpaintPipeline,
     PNDMScheduler,
     LMSDiscreteScheduler,
     DDIMScheduler,
@@ -14,6 +15,7 @@ from diffusers import (
 )
 from PIL import Image
 from cog import BasePredictor, Input, Path
+from typing import Optional
 
 MODEL_ID = "stabilityai/stable-diffusion-2-1"
 MODEL_CACHE = "diffusers-cache"
@@ -26,9 +28,9 @@ class Predictor(BasePredictor):
         self.txt2img_pipe = StableDiffusionPipeline.from_pretrained(
             MODEL_ID,
             cache_dir=MODEL_CACHE,
-            local_files_only=True,
+            force_download=True,
         ).to("cuda")
-        self.img2img_pipe = StableDiffusionImg2ImgPipeline(
+        self.img2img_pipe = StableDiffusionInpaintPipeline(
             vae=self.txt2img_pipe.vae,
             text_encoder=self.txt2img_pipe.text_encoder,
             tokenizer=self.txt2img_pipe.tokenizer,
@@ -52,6 +54,10 @@ class Predictor(BasePredictor):
         image: Path = Input(
             description="Inital image to generate variations of.",
         ),
+	mask: Path = Input(
+	    description="Binary mask to indicate the area to be inpainted.",
+	    default=None,
+	),
         width: int = Input(
             description="Width of output image. Maximum size is 1024x768 or 768x1024 because of memory limits",
             choices=[128, 256, 384, 448, 512, 576, 640, 704, 768, 832, 896, 960, 1024],
@@ -97,6 +103,10 @@ class Predictor(BasePredictor):
             "image": Image.open(image).convert("RGB"),
             "strength": prompt_strength,
         }
+        
+        if mask is not None:
+            extra_kwargs["mask"] = Image.open(mask).convert("1")  # 1 for binary mode
+
         pipe.scheduler = make_scheduler(scheduler, pipe.scheduler.config)
 
         generator = torch.Generator("cuda").manual_seed(seed)
